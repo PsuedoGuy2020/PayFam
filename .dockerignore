@@ -1,0 +1,5 @@
+# Ignore the Go modules and vendor directory
+vendor/
+*.exe
+*.test
+*.out

@@ -1,0 +1,1486 @@
+Index: cmd/router/routers.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/cmd/router/routers.go b/cmd/router/routers.go
+new file mode 100644
+--- /dev/null	(date 1727902977929)
++++ b/cmd/router/routers.go	(date 1727902977929)
+@@ -0,0 +1,31 @@
++package router
++
++import (
++	"PayFam/internal/controllers"
++	"github.com/gin-gonic/gin"
++	"go.uber.org/zap"
++	"net/http"
++)
++
++func backendRoutes(apiRouter *gin.RouterGroup, videoController *controllers.VideoController, logger *zap.Logger) {
++	apiRouter.GET("/youtubeApi", func(ctx *gin.Context) {
++		videoController.FetchVideos(ctx, logger)
++	})
++	apiRouter.GET("/videos", func(ctx *gin.Context) {
++		videoController.GetVideos(ctx, logger)
++	})
++	apiRouter.GET("/videos/search", func(ctx *gin.Context) {
++		videoController.SearchVideos(ctx, logger)
++	})
++}
++
++func frontendRoutes(apiRouter *gin.RouterGroup) {
++	apiRouter.GET("/videos/view", func(c *gin.Context) {
++		c.HTML(http.StatusOK, "youtubeSearch.html", nil)
++	})
++}
++
++func SetupRoutes(apiRouter *gin.RouterGroup, videoController *controllers.VideoController, logger *zap.Logger) {
++	backendRoutes(apiRouter, videoController, logger)
++	frontendRoutes(apiRouter)
++}
+Index: cmd/server/urls/urls.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/cmd/server/urls/urls.go b/cmd/server/urls/urls.go
+new file mode 100644
+--- /dev/null	(date 1727899473130)
++++ b/cmd/server/urls/urls.go	(date 1727899473130)
+@@ -0,0 +1,24 @@
++package urls
++
++import (
++	"PayFam/cmd/router"
++	"PayFam/internal/controllers"
++	"github.com/gin-gonic/gin"
++	"go.uber.org/zap"
++	"net/http"
++)
++
++func AddRoutes(r *gin.Engine, videoController *controllers.VideoController, logger *zap.Logger) {
++	addHealthCheck(r)
++	externalRouterGroup := r.Group("/internal/v1")
++	router.SetupRoutes(externalRouterGroup, videoController, logger)
++}
++
++func addHealthCheck(r *gin.Engine) {
++	r.GET("/knockknock", func(c *gin.Context) {
++		c.JSON(http.StatusOK, gin.H{
++			"status":  "ok",
++			"message": "Service is up and running",
++		})
++	})
++}
+Index: configs/constants.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/configs/constants.go b/configs/constants.go
+new file mode 100644
+--- /dev/null	(date 1727872242038)
++++ b/configs/constants.go	(date 1727872242038)
+@@ -0,0 +1,7 @@
++package configs
++
++import "time"
++
++const (
++	FetchIntervalTime = 10 * time.Second
++)
+Index: .idea/PayFam.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/PayFam.iml b/.idea/PayFam.iml
+new file mode 100644
+--- /dev/null	(date 1727289213279)
++++ b/.idea/PayFam.iml	(date 1727289213279)
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<module type="WEB_MODULE" version="4">
++  <component name="Go" enabled="true" />
++  <component name="NewModuleRootManager">
++    <content url="file://$MODULE_DIR$" />
++    <orderEntry type="inheritedJdk" />
++    <orderEntry type="sourceFolder" forTests="false" />
++  </component>
++</module>
+\ No newline at end of file
+Index: .idea/modules.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/modules.xml b/.idea/modules.xml
+new file mode 100644
+--- /dev/null	(date 1727289213282)
++++ b/.idea/modules.xml	(date 1727289213282)
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="ProjectModuleManager">
++    <modules>
++      <module fileurl="file://$PROJECT_DIR$/.idea/PayFam.iml" filepath="$PROJECT_DIR$/.idea/PayFam.iml" />
++    </modules>
++  </component>
++</project>
+\ No newline at end of file
+Index: internal/service/videoService.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/internal/service/videoService.go b/internal/service/videoService.go
+new file mode 100644
+--- /dev/null	(date 1727898985683)
++++ b/internal/service/videoService.go	(date 1727898985683)
+@@ -0,0 +1,61 @@
++package service
++
++import (
++	external "PayFam/external/youtube"
++	"PayFam/internal/models/entity"
++	"PayFam/internal/models/repository"
++	"context"
++	"fmt"
++	"go.uber.org/zap"
++	"time"
++)
++
++type VideoService struct {
++	Repo           *repository.VideoRepository
++	ApiKeys        []external.APIKey
++	Query          string
++	fetchInterval  time.Duration
++	publishedAfter time.Time
++}
++
++func NewVideoService(repo *repository.VideoRepository, apiKeys []external.APIKey, query string) *VideoService {
++	return &VideoService{
++		Repo:    repo,
++		ApiKeys: apiKeys,
++		Query:   query,
++	}
++}
++
++func (vs *VideoService) GetVideos(ctx context.Context, page, limit int) ([]entity.Video, error) {
++	offset := (page - 1) * limit
++	return vs.Repo.GetVideos(ctx, limit, offset)
++}
++
++func (vs *VideoService) SearchVideos(ctx context.Context, query string, page, limit int) ([]entity.Video, error) {
++	offset := (page - 1) * limit
++	return vs.Repo.SearchVideos(ctx, query, limit, offset)
++}
++
++func (vs *VideoService) FetchVideos(query string, publishedAfter string, maxResults int64, logger *zap.Logger) ([]external.YouTubeVideo, error) {
++	if len(vs.ApiKeys) == 0 {
++		return nil, fmt.Errorf("no API keys available")
++	}
++
++	apiKey := vs.ApiKeys[0].Key
++
++	ytVs := external.VideoService{
++		Repo:           vs.Repo,
++		ApiKeys:        vs.ApiKeys,
++		Query:          vs.Query,
++		FetchInterval:  vs.fetchInterval,
++		PublishedAfter: vs.publishedAfter,
++	}
++
++	videos, _, err := ytVs.FetchVideos(apiKey, query, publishedAfter, maxResults, logger)
++	if err != nil {
++		logger.Error("Error fetching YouTube videos: %v", zap.Error(err))
++		return nil, err
++	}
++
++	return videos, nil
++}
+Index: internal/controllers/videoSearch.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/internal/controllers/videoSearch.go b/internal/controllers/videoSearch.go
+new file mode 100644
+--- /dev/null	(date 1727901933837)
++++ b/internal/controllers/videoSearch.go	(date 1727901933837)
+@@ -0,0 +1,61 @@
++package controllers
++
++import (
++	external "PayFam/external/youtube"
++	"PayFam/internal/service"
++	"github.com/gin-gonic/gin"
++	"go.uber.org/zap"
++	"net/http"
++	"strconv"
++	"time"
++)
++
++type VideoController struct {
++	Service *service.VideoService
++}
++
++func NewVideoController(service *service.VideoService, logger *zap.Logger) *VideoController {
++	return &VideoController{Service: service}
++}
++
++func (vc *VideoController) GetVideos(ctx *gin.Context, logger *zap.Logger) {
++	page, _ := strconv.Atoi(ctx.DefaultQuery("page", external.Page))
++	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", external.Limit))
++
++	videos, err := vc.Service.GetVideos(ctx.Request.Context(), page, limit)
++	if err != nil {
++		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		return
++	}
++
++	ctx.JSON(http.StatusOK, videos)
++}
++
++func (vc *VideoController) SearchVideos(ctx *gin.Context, logger *zap.Logger) {
++	query := ctx.Query("query")
++	page, _ := strconv.Atoi(ctx.DefaultQuery("page", external.Page))
++	limit, _ := strconv.Atoi(ctx.DefaultQuery("limit", external.Limit))
++
++	videos, err := vc.Service.SearchVideos(ctx.Request.Context(), query, page, limit)
++	if err != nil {
++		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		return
++	}
++
++	ctx.JSON(http.StatusOK, videos)
++}
++
++func (vc *VideoController) FetchVideos(ctx *gin.Context, logger *zap.Logger) {
++	query := ctx.DefaultQuery("query", external.Query)
++	publishedAfter := ctx.DefaultQuery("publishedAfter", time.Now().Add(-24*time.Hour).UTC().Format(time.RFC3339))
++	maxResults := external.MaxResults
++
++	videos, err := vc.Service.FetchVideos(query, publishedAfter, maxResults, logger)
++	if err != nil {
++		logger.Error("Error fetching YouTube videos: %v", zap.Error(err))
++		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch videos"})
++		return
++	}
++
++	ctx.JSON(http.StatusOK, videos)
++}
+Index: cmd/Db/db.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/cmd/Db/db.go b/cmd/Db/db.go
+new file mode 100644
+--- /dev/null	(date 1727944231781)
++++ b/cmd/Db/db.go	(date 1727944231781)
+@@ -0,0 +1,25 @@
++package Db
++
++import (
++	"PayFam/internal/models/dao"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"log"
++	"os"
++)
++
++func InitDatabase(host, user, password, dbname string, port string) (*gorm.DB, error) {
++	dbURL := os.Getenv("DATABASE_URL")
++	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
++	if err != nil {
++		log.Fatalf("failed to connect to the database: %v", err)
++		return nil, err
++	}
++
++	err = db.AutoMigrate(&dao.Video{})
++	if err != nil {
++		log.Fatalf("Failed to migrate the database: %v", err)
++	}
++
++	return db, nil
++}
+Index: configs/dev/config.yaml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/configs/dev/config.yaml b/configs/dev/config.yaml
+new file mode 100644
+--- /dev/null	(date 1727895984202)
++++ b/configs/dev/config.yaml	(date 1727895984202)
+@@ -0,0 +1,10 @@
++SERVER:
++  PORT: "8080"
++  LOG_FILE_PATH: "./logs/app.log"
++
++DATABASE:
++  HOST: "localhost"
++  PORT: "5432"
++  USER: "postgres"
++  PASSWORD: "Indmoney@26120"
++  NAME: "customerops"
+Index: cmd/server/main.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/cmd/server/main.go b/cmd/server/main.go
+new file mode 100644
+--- /dev/null	(date 1727905730153)
++++ b/cmd/server/main.go	(date 1727905730153)
+@@ -0,0 +1,73 @@
++package main
++
++import (
++	"PayFam/cmd/Db"
++	"PayFam/cmd/common"
++	"PayFam/cmd/server/urls"
++	"PayFam/configs"
++	external "PayFam/external/youtube"
++	"PayFam/internal/controllers"
++	"PayFam/internal/service"
++	"context"
++	"fmt"
++	"github.com/gin-gonic/gin"
++	"go.uber.org/zap"
++	"gopkg.in/yaml.v3"
++	"io/ioutil"
++)
++
++func main() {
++	r := gin.Default()
++
++	r.LoadHTMLGlob("../../views/*.html")
++
++	logger, err := common.NewLogger()
++	if err != nil {
++		panic("Failed to initialize logger: " + err.Error())
++	}
++	defer logger.Sync()
++
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++
++	configData, err := ioutil.ReadFile("../../configs/dev/config.yaml")
++
++	if err != nil {
++		panic(err)
++	}
++
++	var AppConfig configs.AppConfig
++	err = yaml.Unmarshal(configData, &AppConfig)
++	if err != nil {
++		panic(err)
++	}
++
++	db, err := Db.InitDatabase(
++		AppConfig.Database.Host,
++		AppConfig.Database.User,
++		AppConfig.Database.Password,
++		AppConfig.Database.Name,
++		AppConfig.Database.Port,
++	)
++	if err != nil {
++		panic(err)
++	}
++	appConfig, err := configs.Load(db)
++	if err != nil {
++		logger.Error("Could not load application configuration: %v", zap.Error(err))
++	}
++
++	ytConfig := external.YoutubeConfig(appConfig.VideoRepo, appConfig.YTApiConfig.YouTube.APIKeys, appConfig.YTApiConfig.Query, appConfig.FetchIntervalTime, appConfig.PublishedTime)
++	videoService := service.NewVideoService(appConfig.VideoRepo, appConfig.YTApiConfig.YouTube.APIKeys, appConfig.YTApiConfig.Query)
++	videoController := controllers.NewVideoController(videoService, logger)
++
++	urls.AddRoutes(r, videoController, logger)
++
++	go ytConfig.FetchYouTubeVideosRoundRobin(ctx, logger)
++
++	serverPort := AppConfig.Server.Port
++
++	if servErr := r.Run(fmt.Sprintf(":%s", serverPort)); servErr != nil {
++		logger.Error("Server failed to start: %v", zap.Error(servErr))
++	}
++}
+Index: cmd/common/logger.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/cmd/common/logger.go b/cmd/common/logger.go
+new file mode 100644
+--- /dev/null	(date 1727898265537)
++++ b/cmd/common/logger.go	(date 1727898265537)
+@@ -0,0 +1,20 @@
++package common
++
++import (
++	"go.uber.org/zap"
++	"go.uber.org/zap/zapcore"
++)
++
++func NewLogger() (*zap.Logger, error) {
++	config := zap.NewProductionConfig()
++	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
++	config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
++
++	logger, err := config.Build()
++	if err != nil {
++		return nil, err
++	}
++
++	defer logger.Sync()
++	return logger, nil
++}
+Index: views/youtubeSearch.html
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/views/youtubeSearch.html b/views/youtubeSearch.html
+new file mode 100644
+--- /dev/null	(date 1727904919541)
++++ b/views/youtubeSearch.html	(date 1727904919541)
+@@ -0,0 +1,203 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++    <meta charset="UTF-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1.0">
++    <title>YouTube Video Search</title>
++    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
++    <style>
++        body {
++            font-family: 'Roboto', sans-serif;
++            background-color: #f9f9f9;
++            color: #333;
++            margin: 0;
++            padding: 20px;
++        }
++
++        h1 {
++            text-align: center;
++            color: #ff0000;
++        }
++
++        form {
++            display: flex;
++            justify-content: center;
++            margin-bottom: 20px;
++        }
++
++        label {
++            font-weight: bold;
++            margin-right: 10px;
++            align-self: center;
++        }
++
++        input[type="text"] {
++            padding: 10px;
++            border: 1px solid #ccc;
++            border-radius: 4px;
++            width: 300px;
++            font-size: 16px;
++        }
++
++        button {
++            padding: 10px 15px;
++            background-color: #ff0000;
++            border: none;
++            border-radius: 4px;
++            color: white;
++            font-size: 16px;
++            cursor: pointer;
++            transition: background-color 0.3s;
++            margin-left: 10px; /* Space between input and button */
++        }
++
++        button:hover {
++            background-color: #e60000;
++        }
++
++        #sorting {
++            margin: 20px auto; /* Center alignment */
++            display: none; /* Initially hidden */
++            width: 100%; /* Full width for proper centering */
++            text-align: center; /* Center text inside */
++        }
++
++        #sorting label {
++            font-weight: bold;
++            margin-right: 10px;
++        }
++
++        #sorting select {
++            padding: 10px;
++            border: 1px solid #ccc;
++            border-radius: 4px;
++            font-size: 16px;
++        }
++
++        #results {
++            margin-top: 20px;
++            display: flex;
++            flex-direction: column;
++            align-items: center;
++        }
++
++        #results h2 {
++            color: #444;
++            margin-bottom: 15px;
++        }
++
++        #results div {
++            background: white;
++            border: 1px solid #ddd;
++            border-radius: 4px;
++            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
++            padding: 15px;
++            margin-bottom: 20px;
++            width: 80%;
++            max-width: 600px;
++        }
++
++        #results img {
++            max-width: 100%;
++            border-radius: 4px;
++            margin-top: 10px;
++        }
++
++        @media (max-width: 600px) {
++            form {
++                flex-direction: column;
++                align-items: center;
++            }
++
++            input[type="text"] {
++                width: 100%;
++                margin-bottom: 10px;
++            }
++
++            button {
++                width: 100%;
++            }
++
++            #results div {
++                width: 90%;
++            }
++        }
++    </style>
++    <script>
++        let currentVideos = []; // Store the fetched videos
++
++        async function searchVideos(event) {
++            event.preventDefault(); // Prevent form submission
++
++            const query = document.getElementById('query').value; // Get the query from input
++            const response = await fetch(`/internal/v1/videos/search?query=${encodeURIComponent(query)}`); // Fetch the data from the API
++
++            if (response.ok) {
++                currentVideos = await response.json(); // Store the fetched data
++                renderResults(currentVideos); // Render the results
++            } else {
++                console.error('Failed to fetch videos', response.status);
++                document.getElementById('results').innerHTML = '<p>Error fetching videos.</p>';
++            }
++        }
++
++        function renderResults(videos) {
++            const resultsContainer = document.getElementById('results');
++            resultsContainer.innerHTML = ''; // Clear previous results
++
++            const sortingContainer = document.getElementById('sorting');
++            if (videos && videos.length > 0) {
++                // Show sorting options only when videos are available
++                sortingContainer.style.display = 'block'; // Show sorting options
++                videos.forEach(video => {
++                    const videoDiv = document.createElement('div');
++                    videoDiv.innerHTML = `
++                        <h3>${video.title}</h3>
++                        <p>${video.description}</p>
++                        <p>Published at: ${new Date(video.published_at).toLocaleString()}</p>
++                        <img src="${video.thumbnail_url}" alt="Thumbnail">
++                    `;
++                    resultsContainer.appendChild(videoDiv);
++                });
++            } else {
++                sortingContainer.style.display = 'none'; // Hide sorting options
++                resultsContainer.innerHTML = '<p>No videos found.</p>';
++            }
++        }
++
++        function sortResults(order) {
++            if (currentVideos.length > 0) {
++                const sortedVideos = [...currentVideos];
++                sortedVideos.sort((a, b) => {
++                    const dateA = new Date(a.published_at);
++                    const dateB = new Date(b.published_at);
++                    return order === 'asc' ? dateA - dateB : dateB - dateA;
++                });
++                renderResults(sortedVideos); // Render sorted results
++            }
++        }
++    </script>
++</head>
++<body>
++<h1>YouTube Video Search</h1>
++
++<form onsubmit="searchVideos(event)">
++    <label for="query">Search Query:</label>
++    <input type="text" id="query" name="query" placeholder="Enter your search query" required>
++    <button type="submit">Search</button>
++</form>
++
++<div id="sorting">
++    <label for="sortOrder">Sort by Published Date:</label>
++    <select id="sortOrder" onchange="sortResults(this.value)">
++        <option value="desc">Newest First</option>
++        <option value="asc">Oldest First</option>
++    </select>
++</div>
++
++<div id="results">
++    <h2>Search Results:</h2>
++    <!-- Search results will be rendered here -->
++</div>
++</body>
++</html>
+Index: .dockerignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+--- /dev/null	(date 1727905410179)
++++ b/.dockerignore	(date 1727905410179)
+@@ -0,0 +1,5 @@
++# Ignore the Go modules and vendor directory
++vendor/
++*.exe
++*.test
++*.out
+Index: go.sum
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/go.sum b/go.sum
+new file mode 100644
+--- /dev/null	(date 1727944579890)
++++ b/go.sum	(date 1727944579890)
+@@ -0,0 +1,122 @@
++github.com/bytedance/sonic v1.11.6 h1:oUp34TzMlL+OY1OUWxHqsdkgC/Zfc85zGqw9siXjrc0=
++github.com/bytedance/sonic v1.11.6/go.mod h1:LysEHSvpvDySVdC2f87zGWf6CIKJcAvqab1ZaiQtds4=
++github.com/bytedance/sonic/loader v0.1.1 h1:c+e5Pt1k/cy5wMveRDyk2X4B9hF4g7an8N3zCYjJFNM=
++github.com/bytedance/sonic/loader v0.1.1/go.mod h1:ncP89zfokxS5LZrJxl5z0UJcsk4M4yY2JpfqGeCtNLU=
++github.com/cloudwego/base64x v0.1.4 h1:jwCgWpFanWmN8xoIUHa2rtzmkd5J2plF/dnLS6Xd/0Y=
++github.com/cloudwego/base64x v0.1.4/go.mod h1:0zlkT4Wn5C6NdauXdJRhSKRlJvmclQ1hhJgA0rcu/8w=
++github.com/cloudwego/iasm v0.2.0 h1:1KNIy1I1H9hNNFEEH3DVnI4UujN+1zjpuk6gwHLTssg=
++github.com/cloudwego/iasm v0.2.0/go.mod h1:8rXZaNYT2n95jn+zTI1sDr+IgcD2GVs0nlbbQPiEFhY=
++github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
++github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
++github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/gabriel-vasile/mimetype v1.4.3 h1:in2uUcidCuFcDKtdcBxlR0rJ1+fsokWf+uqxgUFjbI0=
++github.com/gabriel-vasile/mimetype v1.4.3/go.mod h1:d8uq/6HKRL6CGdk+aubisF/M5GcPfT7nKyLpA0lbSSk=
++github.com/gin-contrib/sse v0.1.0 h1:Y/yl/+YNO8GZSjAhjMsSuLt29uWRFHdHYUb5lYOV9qE=
++github.com/gin-contrib/sse v0.1.0/go.mod h1:RHrZQHXnP2xjPF+u1gW/2HnVO7nvIa9PG3Gm+fLHvGI=
++github.com/gin-gonic/gin v1.10.0 h1:nTuyha1TYqgedzytsKYqna+DfLos46nTv2ygFy86HFU=
++github.com/gin-gonic/gin v1.10.0/go.mod h1:4PMNQiOhvDRa013RKVbsiNwoyezlm2rm0uX/T7kzp5Y=
++github.com/go-playground/assert/v2 v2.2.0 h1:JvknZsQTYeFEAhQwI4qEt9cyV5ONwRHC+lYKSsYSR8s=
++github.com/go-playground/assert/v2 v2.2.0/go.mod h1:VDjEfimB/XKnb+ZQfWdccd7VUvScMdVu0Titje2rxJ4=
++github.com/go-playground/locales v0.14.1 h1:EWaQ/wswjilfKLTECiXz7Rh+3BjFhfDFKv/oXslEjJA=
++github.com/go-playground/locales v0.14.1/go.mod h1:hxrqLVvrK65+Rwrd5Fc6F2O76J/NuW9t0sjnWqG1slY=
++github.com/go-playground/universal-translator v0.18.1 h1:Bcnm0ZwsGyWbCzImXv+pAJnYK9S473LQFuzCbDbfSFY=
++github.com/go-playground/universal-translator v0.18.1/go.mod h1:xekY+UJKNuX9WP91TpwSH2VMlDf28Uj24BCp08ZFTUY=
++github.com/go-playground/validator/v10 v10.20.0 h1:K9ISHbSaI0lyB2eWMPJo+kOS/FBExVwjEviJTixqxL8=
++github.com/go-playground/validator/v10 v10.20.0/go.mod h1:dbuPbCMFw/DrkbEynArYaCwl3amGuJotoKCe95atGMM=
++github.com/goccy/go-json v0.10.2 h1:CrxCmQqYDkv1z7lO7Wbh2HN93uovUHgrECaO5ZrCXAU=
++github.com/goccy/go-json v0.10.2/go.mod h1:6MelG93GURQebXPDq3khkgXZkazVtN9CRI+MGFi0w8I=
++github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
++github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
++github.com/google/gofuzz v1.0.0/go.mod h1:dBl0BpW6vV/+mYPU4Po3pmUjxk6FQPldtuIdl/M65Eg=
++github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
++github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
++github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761/go.mod h1:5TJZWKEWniPve33vlWYSoGYefn3gLQRzjfDlhSJ9ZKM=
++github.com/jackc/pgx/v5 v5.7.1 h1:x7SYsPBYDkHDksogeSmZZ5xzThcTgRz++I5E+ePFUcs=
++github.com/jackc/pgx/v5 v5.7.1/go.mod h1:e7O26IywZZ+naJtWWos6i6fvWK+29etgITqrqHLfoZA=
++github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
++github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
++github.com/jinzhu/inflection v1.0.0 h1:K317FqzuhWc8YvSVlFMCCUb36O/S9MCKRDI7QkRKD/E=
++github.com/jinzhu/inflection v1.0.0/go.mod h1:h+uFLlag+Qp1Va5pdKtLDYj+kHp5pxUVkryuEj+Srlc=
++github.com/jinzhu/now v1.1.5 h1:/o9tlHleP7gOFmsnYNz3RGnqzefHA47wQpKrrdTIwXQ=
++github.com/jinzhu/now v1.1.5/go.mod h1:d3SSVoowX0Lcu0IBviAWJpolVfI5UJVZZ7cO71lE/z8=
++github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
++github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
++github.com/klauspost/cpuid/v2 v2.0.9/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
++github.com/klauspost/cpuid/v2 v2.2.7 h1:ZWSB3igEs+d0qvnxR/ZBzXVmxkgt8DdzP6m9pfuVLDM=
++github.com/klauspost/cpuid/v2 v2.2.7/go.mod h1:Lcz8mBdAVJIBVzewtcLocK12l3Y+JytZYpaMropDUws=
++github.com/knz/go-libedit v1.10.1/go.mod h1:MZTVkCWyz0oBc7JOWP3wNAzd002ZbM/5hgShxwh4x8M=
++github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
++github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
++github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
++github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
++github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=
++github.com/leodido/go-urn v1.4.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=
++github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
++github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
++github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
++github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
++github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
++github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=
++github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
++github.com/pelletier/go-toml/v2 v2.2.2 h1:aYUidT7k73Pcl9nb2gScu7NSrKCSHIDE89b3+6Wq+LM=
++github.com/pelletier/go-toml/v2 v2.2.2/go.mod h1:1t835xjRzz80PqgE6HHgN2JOsmgYu/h4qDAS4n929Rs=
++github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e/go.mod h1:pJLUxLENpZxwdsKMEsNbx1VGcRFpLqf3715MtcvvzbA=
++github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
++github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/rogpeppe/go-internal v1.9.0 h1:73kH8U+JUqXU8lRuOHeVHaa/SZPifC7BkcraZVejAe8=
++github.com/rogpeppe/go-internal v1.9.0/go.mod h1:WtVeX8xhTBvf0smdhujwtBcq4Qrzq/fJaraNFVN+nFs=
++github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
++github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
++github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=
++github.com/stretchr/objx v0.5.2/go.mod h1:FRsXN1f5AsAjCGJKqEizvkpNtU+EGNCLh3NxZ/8L+MA=
++github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
++github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
++github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
++github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
++github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
++github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
++github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS4MhqMhdFk5YI=
++github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
++github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65EE=
++github.com/ugorji/go/codec v1.2.12/go.mod h1:UNopzCgEMSXjBc6AOMqYvWC1ktqTAfzJZUZgYf6w6lg=
++go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
++go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
++go.uber.org/multierr v1.10.0 h1:S0h4aNzvfcFsC3dRF1jLoaov7oRaKqRGC/pUEJ2yvPQ=
++go.uber.org/multierr v1.10.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
++go.uber.org/zap v1.27.0 h1:aJMhYGrd5QSmlpLMr2MftRKl7t8J8PTZPA732ud/XR8=
++go.uber.org/zap v1.27.0/go.mod h1:GB2qFLM7cTU87MWRP2mPIjqfIDnGu+VIO4V/SdhGo2E=
++golang.org/x/arch v0.0.0-20210923205945-b76863e36670/go.mod h1:5om86z9Hs0C8fWVUuoMHwpExlXzs5Tkyp9hOrfG7pp8=
++golang.org/x/arch v0.8.0 h1:3wRIsP3pM4yUptoR96otTUOXI367OS0+c9eeRi9doIc=
++golang.org/x/arch v0.8.0/go.mod h1:FEVrYAQjsQXMVJ1nsMoVVXPZg6p2JE2mx8psSWTDQys=
++golang.org/x/crypto v0.27.0 h1:GXm2NjJrPaiv/h1tb2UH8QfgC/hOf/+z0p6PT8o1w7A=
++golang.org/x/crypto v0.27.0/go.mod h1:1Xngt8kV6Dvbssa53Ziq6Eqn0HqbZi5Z6R0ZpwQzt70=
++golang.org/x/net v0.25.0 h1:d/OCCoBEUq33pjydKrGQhw7IlUPI2Oylr+8qLx49kac=
++golang.org/x/net v0.25.0/go.mod h1:JkAGAh7GEvH74S6FOH42FLoXpXbE/aqXSrIQjXgsiwM=
++golang.org/x/sync v0.8.0 h1:3NFvSEYkUoMifnESzZl15y791HH1qU2xm6eCJU5ZPXQ=
++golang.org/x/sync v0.8.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
++golang.org/x/sys v0.5.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.25.0 h1:r+8e+loiHxRqhXVl6ML1nO3l1+oFoWbnlu2Ehimmi34=
++golang.org/x/sys v0.25.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
++golang.org/x/text v0.18.0 h1:XvMDiNzPAl0jr17s6W9lcaIhGUfUORdGCNsuLmPG224=
++golang.org/x/text v0.18.0/go.mod h1:BuEKDfySbSR4drPmRPG/7iBdf8hvFMuRexcpahXilzY=
++google.golang.org/protobuf v1.34.1 h1:9ddQBjfCyZPOHPUiPxpYESBLc+T8P3E+Vo4IbKZgFWg=
++google.golang.org/protobuf v1.34.1/go.mod h1:c6P6GXX6sHbq/GpV6MGZEdwhWPcYBgnhAHhKbcUYpos=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c h1:Hei/4ADfdWqJk1ZMxUNpqntNwaWcugrBjAiHlqqRiVk=
++gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c/go.mod h1:JHkPIbrfpd72SG/EVd6muEfDQjcINNoR0C8j2r3qZ4Q=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
++gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
++gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
++gorm.io/driver/postgres v1.5.9 h1:DkegyItji119OlcaLjqN11kHoUgZ/j13E0jkJZgD6A8=
++gorm.io/driver/postgres v1.5.9/go.mod h1:DX3GReXH+3FPWGrrgffdvCk3DQ1dwDPdmbenSkweRGI=
++gorm.io/gorm v1.25.12 h1:I0u8i2hWQItBq1WfE0o2+WuL9+8L21K9e2HHSTE/0f8=
++gorm.io/gorm v1.25.12/go.mod h1:xh7N7RHfYlNc5EmcI/El95gXusucDrQnHXe0+CgWcLQ=
++nullprogram.com/x/optparse v1.0.0/go.mod h1:KdyPE+Igbe0jQUrVfMqDMeJQIJZEuyV7pjYmp6pbG50=
++rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=
+Index: docker-compose.yml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/docker-compose.yml b/docker-compose.yml
+new file mode 100644
+--- /dev/null	(date 1727905637662)
++++ b/docker-compose.yml	(date 1727905637662)
+@@ -0,0 +1,21 @@
++version: '3.8'
++
++services:
++  app:
++    build: .
++    ports:
++      - "8080:8080"
++    depends_on:
++      - db
++    environment:
++      DATABASE_URL: "postgres://user:payfam@123@db:5432/payfam?sslmode=disable"
++
++  db:
++    image: postgres:latest
++    restart: always
++    environment:
++      POSTGRES_DB: payfam
++      POSTGRES_USER: user
++      POSTGRES_PASSWORD: payfam@123
++    ports:
++      - "5432:5432"
+Index: configs/config.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/configs/config.go b/configs/config.go
+new file mode 100644
+--- /dev/null	(date 1727896914182)
++++ b/configs/config.go	(date 1727896914182)
+@@ -0,0 +1,22 @@
++package configs
++
++import (
++	external "PayFam/external/youtube"
++	"PayFam/internal/models/repository"
++	"gorm.io/gorm"
++	"time"
++)
++
++func Load(db *gorm.DB) (*YtConfig, error) {
++	ytApiConfig := external.LoadConfig()
++	videoRepo := repository.NewVideoRepository(db)
++	publishedTime := time.Now().Add(-24 * time.Hour)
++	fetchIntervalTime := FetchIntervalTime
++
++	return &YtConfig{
++		YTApiConfig:       *ytApiConfig,
++		VideoRepo:         videoRepo,
++		PublishedTime:     publishedTime,
++		FetchIntervalTime: fetchIntervalTime,
++	}, nil
++}
+Index: go.mod
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/go.mod b/go.mod
+new file mode 100644
+--- /dev/null	(date 1727944621857)
++++ b/go.mod	(date 1727944621857)
+@@ -0,0 +1,51 @@
++module PayFam
++
++go 1.22.3
++
++require (
++	github.com/gin-gonic/gin v1.10.0
++	go.uber.org/zap v1.27.0
++	gopkg.in/yaml.v3 v3.0.1
++	gorm.io/driver/postgres v1.5.9
++	gorm.io/gorm v1.25.12
++)
++
++require (
++	github.com/bytedance/sonic v1.11.6 // indirect
++	github.com/bytedance/sonic/loader v0.1.1 // indirect
++	github.com/cloudwego/base64x v0.1.4 // indirect
++	github.com/cloudwego/iasm v0.2.0 // indirect
++	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
++	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
++	github.com/gin-contrib/sse v0.1.0 // indirect
++	github.com/go-playground/locales v0.14.1 // indirect
++	github.com/go-playground/universal-translator v0.18.1 // indirect
++	github.com/go-playground/validator/v10 v10.20.0 // indirect
++	github.com/goccy/go-json v0.10.2 // indirect
++	github.com/google/go-cmp v0.5.9 // indirect
++	github.com/jackc/pgpassfile v1.0.0 // indirect
++	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
++	github.com/jackc/pgx/v5 v5.7.1 // indirect
++	github.com/jackc/puddle/v2 v2.2.2 // indirect
++	github.com/jinzhu/inflection v1.0.0 // indirect
++	github.com/jinzhu/now v1.1.5 // indirect
++	github.com/json-iterator/go v1.1.12 // indirect
++	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
++	github.com/kr/pretty v0.3.1 // indirect
++	github.com/leodido/go-urn v1.4.0 // indirect
++	github.com/mattn/go-isatty v0.0.20 // indirect
++	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
++	github.com/modern-go/reflect2 v1.0.2 // indirect
++	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
++	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
++	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
++	github.com/ugorji/go/codec v1.2.12 // indirect
++	go.uber.org/multierr v1.10.0 // indirect
++	golang.org/x/arch v0.8.0 // indirect
++	golang.org/x/crypto v0.27.0 // indirect
++	golang.org/x/net v0.25.0 // indirect
++	golang.org/x/sync v0.8.0 // indirect
++	golang.org/x/sys v0.25.0 // indirect
++	golang.org/x/text v0.18.0 // indirect
++	google.golang.org/protobuf v1.34.1 // indirect
++)
+Index: Dockerfile
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+--- /dev/null	(date 1727905378902)
++++ b/Dockerfile	(date 1727905378902)
+@@ -0,0 +1,20 @@
++FROM golang:1.20 AS builder
++
++WORKDIR /app
++
++COPY go.mod go.sum ./
++
++RUN go mod download
++
++COPY . .
++
++RUN go build -o main .
++
++FROM alpine:latest
++
++WORKDIR /root/
++COPY --from=builder /app/main .
++
++EXPOSE 8080
++
++CMD ["./main"]
+Index: external/youtube/constants.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/external/youtube/constants.go b/external/youtube/constants.go
+new file mode 100644
+--- /dev/null	(date 1727944075225)
++++ b/external/youtube/constants.go	(date 1727944075225)
+@@ -0,0 +1,23 @@
++package external
++
++const (
++	youtubeApiUrl = "https://www.googleapis.com/youtube/v3/search"
++)
++
++const (
++	API_KEY1 = "AIzaSyBsBrlwgv8rrxN4-qnvayNyjlkfzRNZ880"
++	API_KEY2 = "AIzaSyBsBrlwgv8rrxN4-qnvayNyjlkfzRNZ880"
++	API_KEY3 = "AIzaSyBsBrlwgv8rrxN4-qnvayNyjlkfzRNZ880"
++)
++
++const (
++	MaxErrors  int64  = 3
++	MaxPages   int64  = 10
++	MaxResults int64  = 5
++	Page       string = "1"
++	Limit      string = "5"
++)
++
++const (
++	Query = "cricket"
++)
+Index: external/youtube/structs.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/external/youtube/structs.go b/external/youtube/structs.go
+new file mode 100644
+--- /dev/null	(date 1727896932026)
++++ b/external/youtube/structs.go	(date 1727896932026)
+@@ -0,0 +1,66 @@
++package external
++
++import (
++	"PayFam/internal/models/repository"
++	"time"
++)
++
++type VideoService struct {
++	Repo           *repository.VideoRepository
++	ApiKeys        []APIKey
++	Query          string
++	FetchInterval  time.Duration
++	PublishedAfter time.Time
++}
++
++type YouTubeConfig struct {
++	APIKeys []APIKey
++}
++
++type Config struct {
++	YouTube YouTubeConfig
++	Query   string
++}
++
++type YouTubeVideo struct {
++	VideoID     string
++	Title       string
++	Description string
++	PublishedAt time.Time
++	Thumbnail   string
++}
++
++type APIResponse struct {
++	NextPageToken string      `json:"nextPageToken"`
++	Items         []VideoItem `json:"items"`
++}
++
++type VideoItem struct {
++	ID      VideoID `json:"id"`
++	Snippet Snippet `json:"snippet"`
++}
++
++type VideoID struct {
++	VideoID string `json:"videoId"`
++}
++
++type Snippet struct {
++	PublishedAt string     `json:"publishedAt"`
++	Title       string     `json:"title"`
++	Description string     `json:"description"`
++	Thumbnails  Thumbnails `json:"thumbnails"`
++}
++
++type Thumbnails struct {
++	Default Thumbnail `json:"default"`
++}
++
++type Thumbnail struct {
++	URL string `json:"url"`
++}
++
++type APIKey struct {
++	Key        string
++	ErrorCount int64
++	Enabled    bool
++}
+Index: configs/structs.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/configs/structs.go b/configs/structs.go
+new file mode 100644
+--- /dev/null	(date 1727896914186)
++++ b/configs/structs.go	(date 1727896914186)
+@@ -0,0 +1,28 @@
++package configs
++
++import (
++	external "PayFam/external/youtube"
++	"PayFam/internal/models/repository"
++	"time"
++)
++
++type AppConfig struct {
++	Server struct {
++		Port        string `yaml:"PORT"`
++		LogFilePath string `yaml:"LOG_FILE_PATH"`
++	} `yaml:"SERVER"`
++	Database struct {
++		Host     string `yaml:"HOST"`
++		Port     string `yaml:"PORT"`
++		User     string `yaml:"USER"`
++		Password string `yaml:"PASSWORD"`
++		Name     string `yaml:"NAME"`
++	} `yaml:"DATABASE"`
++}
++
++type YtConfig struct {
++	YTApiConfig       external.Config
++	VideoRepo         *repository.VideoRepository
++	PublishedTime     time.Time
++	FetchIntervalTime time.Duration
++}
+Index: external/youtube/youtube_api.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/external/youtube/youtube_api.go b/external/youtube/youtube_api.go
+new file mode 100644
+--- /dev/null	(date 1727899569563)
++++ b/external/youtube/youtube_api.go	(date 1727899569563)
+@@ -0,0 +1,151 @@
++package external
++
++import (
++	"PayFam/internal/models/entity"
++	"PayFam/internal/models/repository"
++	"context"
++	"encoding/json"
++	"fmt"
++	"go.uber.org/zap"
++	"io/ioutil"
++	"net/http"
++	"time"
++)
++
++func LoadConfig() *Config {
++	return &Config{
++		YouTube: YouTubeConfig{
++			APIKeys: []APIKey{
++				{Key: API_KEY1, Enabled: true},
++				{Key: API_KEY2, Enabled: true},
++				{Key: API_KEY3, Enabled: true},
++			},
++		},
++		Query: Query,
++	}
++}
++
++func YoutubeConfig(repo *repository.VideoRepository, apiKeys []APIKey, query string, fetchInterval time.Duration, publishedAfter time.Time) *VideoService {
++	return &VideoService{
++		Repo:           repo,
++		ApiKeys:        apiKeys,
++		Query:          query,
++		FetchInterval:  fetchInterval,
++		PublishedAfter: publishedAfter,
++	}
++}
++
++func (vs *VideoService) FetchYouTubeVideosRoundRobin(ctx context.Context, logger *zap.Logger) {
++	keyCount := len(vs.ApiKeys)
++	if keyCount == 0 {
++		return
++	}
++
++	ticker := time.NewTicker(vs.FetchInterval)
++	defer ticker.Stop()
++
++	keyIndex := 0
++	var totalPageCount int64 = 0
++
++	for {
++		select {
++		case <-ticker.C:
++			apiKey := &vs.ApiKeys[keyIndex]
++			if !apiKey.Enabled {
++				keyIndex = (keyIndex + 1) % keyCount
++				continue
++			}
++			publishedAfterStr := vs.PublishedAfter.UTC().Format(time.RFC3339)
++			videos, pagesFetched, err := vs.FetchVideos(apiKey.Key, vs.Query, publishedAfterStr, MaxResults, logger)
++			if err != nil {
++				logger.Error("Error fetching videos", zap.String("api_key", apiKey.Key), zap.Error(err))
++				apiKey.ErrorCount++
++				if apiKey.ErrorCount >= MaxErrors {
++					apiKey.Enabled = false
++					logger.Error("Disabling due to consecutive errors\n", zap.String("api_key", apiKey.Key))
++				}
++			} else {
++				apiKey.ErrorCount = 0
++				for _, video := range videos {
++					ytVideoToEntityVideo := entity.Video{
++						VideoId:      video.VideoID,
++						Title:        video.Title,
++						Description:  video.Description,
++						PublishedAt:  video.PublishedAt,
++						ThumbnailUrl: video.Thumbnail,
++					}
++					if dbErr := vs.Repo.SaveVideoIfNotExists(ctx, &ytVideoToEntityVideo); dbErr != nil {
++						logger.Error("Failed to save video: %v", zap.Error(dbErr))
++					}
++				}
++			}
++			keyIndex = (keyIndex + 1) % keyCount
++			totalPageCount += pagesFetched
++			if totalPageCount >= MaxPages {
++				logger.Info("Max pages fetched. Stopping background task")
++				return
++			}
++		}
++	}
++}
++
++func (vs *VideoService) FetchVideos(apiKey string, query string, publishedAfter string, maxResults int64, logger *zap.Logger) ([]YouTubeVideo, int64, error) {
++	var videos []YouTubeVideo
++	var nextPageToken = ""
++	var pageCount int64 = 0
++
++	for {
++		url := fmt.Sprintf("%v?key=%v&q=%v&type=video&part=snippet&order=date&publishedAfter=%v&maxResults=%v&pageToken=%v",
++			youtubeApiUrl, apiKey, query, publishedAfter, maxResults, nextPageToken)
++
++		resp, apiErr := http.Get(url)
++		if apiErr != nil {
++			return nil, pageCount, apiErr
++		}
++
++		respBody, respErr := ioutil.ReadAll(resp.Body)
++		err := resp.Body.Close()
++		if err != nil {
++			return nil, pageCount, err
++		}
++		if respErr != nil {
++			return nil, pageCount, err
++		}
++
++		if resp.StatusCode != http.StatusOK {
++			return nil, pageCount, fmt.Errorf("HTTP error: %s, Response: %s", resp.Status, string(respBody))
++		}
++
++		var result APIResponse
++		if resErr := json.Unmarshal(respBody, &result); resErr != nil {
++			return nil, pageCount, resErr
++		}
++
++		for _, item := range result.Items {
++			publishedAt, dateErr := time.Parse(time.RFC3339, item.Snippet.PublishedAt)
++			if dateErr != nil {
++				logger.Error("Error parsing time: %v", zap.Error(dateErr))
++				continue
++			}
++
++			video := YouTubeVideo{
++				Title:       item.Snippet.Title,
++				Description: item.Snippet.Description,
++				PublishedAt: publishedAt,
++				Thumbnail:   item.Snippet.Thumbnails.Default.URL,
++				VideoID:     item.ID.VideoID,
++			}
++			videos = append(videos, video)
++		}
++
++		pageCount++
++
++		if result.NextPageToken == "" || pageCount >= MaxPages {
++			break
++		}
++
++		nextPageToken = result.NextPageToken
++	}
++
++	return videos, pageCount, nil
++}
+Index: internal/models/entity/videoEntity.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/internal/models/entity/videoEntity.go b/internal/models/entity/videoEntity.go
+new file mode 100644
+--- /dev/null	(date 1727628854913)
++++ b/internal/models/entity/videoEntity.go	(date 1727628854913)
+@@ -0,0 +1,16 @@
++package entity
++
++import (
++	"time"
++)
++
++type Video struct {
++	ID           uint      `json:"id"`
++	VideoId      string    `json:"video_id"`
++	CreatedAt    time.Time `json:"created_at"`
++	UpdatedAt    time.Time `json:"updated_at"`
++	Title        string    `json:"title"`
++	Description  string    `json:"description"`
++	PublishedAt  time.Time `json:"published_at"`
++	ThumbnailUrl string    `json:"thumbnail_url"`
++}
+Index: internal/models/dao/videoDao.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/internal/models/dao/videoDao.go b/internal/models/dao/videoDao.go
+new file mode 100644
+--- /dev/null	(date 1727894509136)
++++ b/internal/models/dao/videoDao.go	(date 1727894509136)
+@@ -0,0 +1,44 @@
++package dao
++
++import (
++	"PayFam/internal/models/entity"
++	"time"
++)
++
++type Video struct {
++	ID           uint      `gorm:"column:id;primaryKey;autoIncrement"`
++	VideoId      string    `json:"video_id"`
++	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime"`
++	UpdatedAt    time.Time `gorm:"column:updated_at;autoUpdateTime"`
++	Title        string    `gorm:"column:title;index"`
++	Description  string    `gorm:"column:description"`
++	PublishedAt  time.Time `gorm:"column:published_at"`
++	ThumbnailUrl string    `gorm:"column:thumbnail_url"`
++}
++
++func (v *Video) TableName() string {
++	return "videos"
++}
++
++func (v *Video) ToEntity() entity.Video {
++	return entity.Video{
++		ID:           v.ID,
++		CreatedAt:    v.CreatedAt,
++		UpdatedAt:    v.UpdatedAt,
++		Title:        v.Title,
++		Description:  v.Description,
++		PublishedAt:  v.PublishedAt,
++		ThumbnailUrl: v.ThumbnailUrl,
++	}
++}
++
++func (v *Video) EntityToModel(videoEntity entity.Video) {
++	v.ID = videoEntity.ID
++	v.VideoId = videoEntity.VideoId
++	v.CreatedAt = videoEntity.CreatedAt
++	v.UpdatedAt = videoEntity.UpdatedAt
++	v.Title = videoEntity.Title
++	v.Description = videoEntity.Description
++	v.PublishedAt = videoEntity.PublishedAt
++	v.ThumbnailUrl = videoEntity.ThumbnailUrl
++}
+Index: internal/models/repository/videoRepository.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/internal/models/repository/videoRepository.go b/internal/models/repository/videoRepository.go
+new file mode 100644
+--- /dev/null	(date 1727895717149)
++++ b/internal/models/repository/videoRepository.go	(date 1727895717149)
+@@ -0,0 +1,98 @@
++package repository
++
++import (
++	"PayFam/internal/models/dao"
++	"PayFam/internal/models/entity"
++	"context"
++	"errors"
++	"gorm.io/gorm"
++	"log"
++)
++
++type VideoRepository struct {
++	db *gorm.DB
++}
++
++func NewVideoRepository(db *gorm.DB) *VideoRepository {
++	return &VideoRepository{db: db}
++}
++
++func (repo *VideoRepository) GetVideoByVideoID(ctx context.Context, videoId string) (*entity.Video, error) {
++	var videoRow dao.Video
++	err := repo.db.WithContext(ctx).
++		Where("video_id = ?", videoId).
++		First(&videoRow).Error
++
++	if err != nil {
++		if errors.Is(err, gorm.ErrRecordNotFound) {
++			return nil, nil
++		}
++		return nil, err
++	}
++
++	videoObj := videoRow.ToEntity()
++	return &videoObj, nil
++}
++
++func (repo *VideoRepository) RecordVideo(ctx context.Context, videoObj *entity.Video) error {
++	videoRow := &dao.Video{}
++	videoRow.EntityToModel(*videoObj)
++
++	dbErr := repo.db.WithContext(ctx).Create(videoRow).Error
++	if dbErr != nil {
++		return dbErr
++	}
++
++	videoObj.ID = videoRow.ID
++	return nil
++}
++
++func (repo *VideoRepository) SaveVideoIfNotExists(ctx context.Context, video *entity.Video) error {
++	existing, err := repo.GetVideoByVideoID(ctx, video.VideoId)
++	if err != nil {
++		return err
++	}
++
++	if existing != nil {
++		log.Printf("Video with ID %s already exists", video.VideoId)
++		return nil
++	}
++
++	return repo.RecordVideo(ctx, video)
++}
++
++func (repo *VideoRepository) GetVideos(ctx context.Context, limit, offset int) ([]entity.Video, error) {
++	var videoRows []dao.Video
++	err := repo.db.WithContext(ctx).Limit(limit).Offset(offset).Order("published_at DESC").Find(&videoRows).Error
++	if err != nil {
++		return nil, err
++	}
++
++	videos := make([]entity.Video, len(videoRows))
++	for i, videoRow := range videoRows {
++		videos[i] = videoRow.ToEntity()
++	}
++
++	return videos, nil
++}
++
++func (repo *VideoRepository) SearchVideos(ctx context.Context, query string, limit, offset int) ([]entity.Video, error) {
++	var videoRows []dao.Video
++	err := repo.db.WithContext(ctx).
++		Where("title ILIKE ? OR description ILIKE ?", "%"+query+"%", "%"+query+"%").
++		Limit(limit).
++		Offset(offset).
++		Order("published_at DESC").
++		Find(&videoRows).Error
++
++	if err != nil {
++		return nil, err
++	}
++
++	videos := make([]entity.Video, len(videoRows))
++	for i, videoRow := range videoRows {
++		videos[i] = videoRow.ToEntity()
++	}
++
++	return videos, nil
++}
+Index: .idea/vcs.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/vcs.xml b/.idea/vcs.xml
+new file mode 100644
+--- /dev/null	(date 1727944356676)
++++ b/.idea/vcs.xml	(date 1727944356676)
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="VcsDirectoryMappings">
++    <mapping directory="$PROJECT_DIR$" vcs="Git" />
++  </component>
++</project>
+\ No newline at end of file
+Index: .idea/.gitignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/.gitignore b/.idea/.gitignore
+new file mode 100644
+--- /dev/null	(date 1727289063180)
++++ b/.idea/.gitignore	(date 1727289063180)
+@@ -0,0 +1,8 @@
++# Default ignored files
++/shelf/
++/workspace.xml
++# Editor-based HTTP Client requests
++/httpRequests/
++# Datasource local storage ignored files
++/dataSources/
++/dataSources.local.xml

@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: "postgres://user:payfam@123@db:5432/payfam?sslmode=disable"
+
+  db:
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_DB: payfam
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: payfam@123
+    ports:
+      - "5432:5432"

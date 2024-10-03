@@ -1,0 +1,10 @@
+SERVER:
+  PORT: "8080"
+  LOG_FILE_PATH: "./logs/app.log"
+
+DATABASE:
+  HOST: "localhost"
+  PORT: "5432"
+  USER: "postgres"
+  PASSWORD: "Indmoney@26120"
+  NAME: "customerops"
