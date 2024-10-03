@@ -4,30 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="32cab33e-a400-4f44-b06c-ba6a2dac2dd3" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/cmd/Db/db.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/cmd/common/logger.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/cmd/router/routers.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/cmd/server/main.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/cmd/server/urls/urls.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/configs/config.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/configs/constants.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/configs/dev/config.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/configs/structs.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/external/youtube/constants.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/external/youtube/structs.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/external/youtube/youtube_api.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/internal/controllers/videoSearch.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/internal/models/dao/videoDao.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/internal/models/entity/videoEntity.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/internal/models/repository/videoRepository.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/internal/service/videoService.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/views/youtubeSearch.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" />
-    </list>
+    <list default="true" id="32cab33e-a400-4f44-b06c-ba6a2dac2dd3" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
